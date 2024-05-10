@@ -24,14 +24,22 @@ export class Block {
         index: number,
         timestamp: Date,
         transactions: Transaction[],
-        previousHash: string
+        previousHash: string,
+        nonce: number,
+        hash?: string
     ) {
         this.index = index;
         this.timestamp = timestamp;
         this.transactions = transactions;
         this.previousHash = previousHash;
+        this.nonce = nonce;
+
+        if (hash) {
+            this.hash = hash;
+            return;
+        }
+
         this.hash = this.calculateHash();
-        this.nonce = 0;
     }
 
     public calculateHash(): string {
@@ -45,10 +53,8 @@ export class Block {
     }
 
     public mineBlock(difficulty: number) {
-        while (
-            this.hash.substring(0, difficulty) !==
-            Array(difficulty + 1).join("0")
-        ) {
+        const target = Array(difficulty + 1).join("0");
+        while (this.hash.substring(0, difficulty) !== target) {
             this.nonce++;
             this.hash = this.calculateHash();
         }
@@ -57,10 +63,12 @@ export class Block {
 
 export class Blockchain {
     public chain: Block[];
-    public difficulty: number;
-    public miningReward: number;
-    public systemWallet: string = "network";
-    public systemSignature: string = "1234567890";
+    private readonly difficulty: number;
+    private readonly miningReward: number;
+    private readonly systemWallet: string = "network";
+    private readonly systemSignature: string = "1234567890";
+    private readonly genesisHash: string = "genesisHash";
+    private readonly genesisIndex: number = 0;
 
     constructor(difficulty: number, miningReward: number = 1) {
         if (difficulty < 1) {
@@ -69,14 +77,17 @@ export class Blockchain {
 
         this.chain = [];
 
-        // update this.chain (either from db or create genesis block)
-        this.syncChains();
-
-        this.miningReward = 1;
+        this.miningReward = miningReward;
         this.difficulty = difficulty;
     }
 
-    private getLatestBlock(): Block {
+    private async getLatestBlock(
+        syncChains: boolean = true
+    ): Promise<Block | undefined> {
+        if (syncChains) {
+            await this.syncChains();
+        }
+
         return this.chain[this.chain.length - 1];
     }
 
@@ -91,22 +102,25 @@ export class Blockchain {
             timestamp: new Date(),
         };
 
-        const newBlock = new Block(0, new Date(), [transaction], "");
-        await this.addBlock(
-            newBlock.transactions,
-            this.systemWallet,
-            this.systemSignature,
-            false
-        );
+        const newBlock = await this.addBlock({
+            transactions: [transaction],
+            receiverAddress: this.systemWallet,
+            signature: this.systemSignature,
+            syncChains: false,
+        });
 
         return newBlock;
     }
 
-    private async syncChains() {
-        const blocks = await db.query.blocks.findMany();
+    public async syncChains() {
+        const blocks = await db.query.blocks.findMany({
+            orderBy: (table, { asc }) => [asc(table.index)],
+        });
+
         if (blocks.length === 0) {
             const genesisBlock = await this.createGenesisBlock();
             this.chain = [genesisBlock];
+            await this.syncChains();
             return;
         }
 
@@ -115,22 +129,28 @@ export class Blockchain {
                 block.index,
                 block.timestamp,
                 JSON.parse(block.transactions),
-                block.previousHash
+                block.previousHash,
+                block.nonce,
+                block.hash
             );
         });
     }
 
-    public async addBlock(
-        transactions: Transaction[],
-        receiverAddress: string,
-        signature: string,
-        fetchLatestBlock: boolean = true
-    ) {
-        // ensure that all blocks are up to date
-        if (fetchLatestBlock) {
-            await this.syncChains();
-        }
-
+    // If block is provided, save db with the block provided.
+    // arg receive as object to avoid confusion with multiple arguments
+    public async addBlock({
+        transactions,
+        receiverAddress,
+        signature,
+        block = undefined,
+        syncChains = true,
+    }: {
+        transactions: Transaction[];
+        receiverAddress: string;
+        signature: string;
+        block?: Block;
+        syncChains?: boolean;
+    }): Promise<Block> {
         const walletIsValid = await this.isWalletValid(
             this.systemWallet,
             this.systemSignature
@@ -139,15 +159,22 @@ export class Blockchain {
             throw new Error("Invalid wallet");
         }
 
-        const lastBlock = this.getLatestBlock();
-        const genesisBlockIndex = 0;
+        let newBlock: Block;
 
-        const newBlock = new Block(
-            lastBlock?.index + 1 || genesisBlockIndex,
-            new Date(),
-            transactions,
-            lastBlock?.hash || "genesisHash"
-        );
+        // when mining, we pass block and store block instead of creating a new one
+        if (block) {
+            newBlock = block;
+        } else {
+            // this one mostly for creating genesis block
+            const lastBlock = await this.getLatestBlock(syncChains);
+            newBlock = new Block(
+                lastBlock ? lastBlock.index + 1 : this.genesisIndex,
+                new Date(),
+                transactions,
+                lastBlock?.hash || this.genesisHash,
+                0
+            );
+        }
 
         await db.transaction(async (tx) => {
             // save block to db
@@ -172,6 +199,12 @@ export class Blockchain {
                 timestamp: new Date(),
             });
         });
+
+        if (syncChains) {
+            await this.syncChains();
+        }
+
+        return newBlock;
     }
 
     public async createPendingTransaction(
@@ -186,8 +219,8 @@ export class Blockchain {
             throw new Error("Invalid wallet");
         }
 
-        // check if sender has enough balance, except for system transactions on first transaction
-        if (transaction.id === 0) {
+        // check if sender has enough balance, except for system transactions on first block transaction
+        if (transaction.id != 0) {
             const balance = await this.getBalance(transaction.sender);
             if (balance < transaction.amount) {
                 throw new Error("Insufficient balance");
@@ -234,24 +267,27 @@ export class Blockchain {
 
             // lock pending transactions
             await this.lockPendingTransactions(true, pendingTransactions);
+            const latestBlock = await this.getLatestBlock();
+            if (!latestBlock) {
+                throw new Error("No blocks found");
+            }
 
             const newBlock = new Block(
-                this.getLatestBlock()?.index + 1,
+                latestBlock.index + 1,
                 new Date(),
                 pendingTransactions,
-                this.getLatestBlock()?.hash
+                latestBlock.hash,
+                0
             );
 
             newBlock.mineBlock(this.difficulty);
 
-            await this.addBlock(
-                pendingTransactions,
-                minerAddress,
-                this.systemSignature,
-                false
-            );
-
-            await this.syncChains();
+            await this.addBlock({
+                transactions: pendingTransactions,
+                receiverAddress: minerAddress,
+                signature: this.systemSignature,
+                block: newBlock,
+            });
         } finally {
             // unlock pending transactions, even though if mined the transactions will be removed
             await this.lockPendingTransactions(false, pendingTransactions);
@@ -280,12 +316,17 @@ export class Blockchain {
 
         for (const block of this.chain) {
             for (const transaction of block.transactions) {
-                if (transaction.sender === walletId) {
-                    balance -= transaction.amount;
-                }
-
                 if (transaction.receiver === walletId) {
                     balance += transaction.amount;
+
+                    // skip first block transaction, since it is system transaction
+                    if (transaction.id === 0) {
+                        continue;
+                    }
+                }
+
+                if (transaction.sender === walletId) {
+                    balance -= transaction.amount;
                 }
             }
         }
@@ -296,7 +337,7 @@ export class Blockchain {
     public async isChainValid(): Promise<boolean> {
         await this.syncChains();
 
-        for (let i = 1; i < this.chain.length; i++) {
+        for (let i = this.genesisIndex + 1; i < this.chain.length; i++) {
             const currentBlock = this.chain[i];
             const previousBlock = this.chain[i - 1];
 
@@ -304,7 +345,7 @@ export class Blockchain {
                 console.log(
                     `Block hash mismatch: ${
                         currentBlock.hash
-                    } !== ${currentBlock.calculateHash()} at index ${
+                    } !== ${currentBlock.calculateHash()} at block index ${
                         currentBlock.index
                     }`
                 );
@@ -313,11 +354,7 @@ export class Blockchain {
 
             if (currentBlock.previousHash !== previousBlock.hash) {
                 console.log(
-                    `Previous hash mismatch: ${
-                        currentBlock.previousHash
-                    } !== ${previousBlock.hash} at index ${
-                        currentBlock.index
-                    }`
+                    `Previous hash mismatch: ${currentBlock.previousHash} !== ${previousBlock.hash} at block index ${currentBlock.index}`
                 );
                 return false;
             }

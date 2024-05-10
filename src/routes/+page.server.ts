@@ -27,7 +27,7 @@ export async function load() {
             };
     
             // Add the transaction to the pending transactions
-            // await blockchain.createPendingTransaction(systemSignature, transaction);
+            await blockchain.createPendingTransaction(systemSignature, transaction);
 
             // Mine pending transactions
             await blockchain.minePendingTransactions(minerWallet);

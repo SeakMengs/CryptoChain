@@ -18,9 +18,10 @@ export const wallets = pgTable("wallets", {
 export const transactions = pgTable("transactions", {
     id: serial("id").primaryKey(),
     blockId: integer("block_id").notNull().references(() => blocks.index),
-    fromAddress: text("from_address").notNull(),
-    toAddress: text("to_address").notNull(),
-    amount: integer("amount").notNull(),
+    // fromAddress: text("from_address").notNull(),
+    // toAddress: text("to_address").notNull(),
+    // amount: integer("amount").notNull(),
+    data: json("data").notNull(),
     status: text("status").notNull(),
     timestamp: timestamp("timestamp").notNull(),
 });

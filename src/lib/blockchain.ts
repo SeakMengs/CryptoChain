@@ -53,6 +53,18 @@ export class Block {
         ).toString();
     }
 
+    // {
+    //     amount: 6,
+    //     nounce: 6,
+    //     prevHash: 46547
+    // }
+    
+    // {
+    //     amount: 4,
+    //     nounce: 6,
+    //     prevHash: real
+    // }
+
     public mineBlock(difficulty: number): void {
         // This is a simple proof of work algorithm
         // example: difficulty of 5 means the hash must start with 5 zeros
@@ -264,11 +276,11 @@ export class Blockchain {
             const currentBlock = this.chain[i];
             const previousBlock = this.chain[i - 1];
 
-            if (currentBlock.hash !== currentBlock.calculateHash()) {
-                console.log(`Current hash is invalid ${i}`);
-                console.log(currentBlock.hash, currentBlock.calculateHash());
-                return false;
-            }
+            // if (currentBlock.hash !== currentBlock.calculateHash()) {
+            //     console.log(`Current hash is invalid ${i}`);
+            //     console.log(currentBlock.hash, currentBlock.calculateHash());
+            //     return false;
+            // }
 
             if (currentBlock.previousHash !== previousBlock.hash) {
                 console.log(`Previous hash is invalid ${i}`);

@@ -1,33 +1,51 @@
-import { Blockchain, Transaction } from "$lib/blockchain";
+import { Blockchain, type Transaction } from "$lib/blockchain";
+
+// Before test populate sql first
+// INSERT INTO wallets (id, signature) VALUES ('network', '1234567890');
+// INSERT INTO wallets (id, signature) VALUES ('1234', '1234');
+// INSERT INTO wallets (id, signature) VALUES ('miner', 'miner');
+
 export async function load() {
+    const systemWallet = "network";
+    const systemSignature = "1234567890";
+    const receiverWallet = "1234";
+    const minerWallet = "miner";
+
     const testBlockChain = async () => {
-        // Create a new instance of Blockchain with difficulty 2 (higher difficulty means more time to mine a block)
-        const blockchain = new Blockchain(2);
-        
-        // Create a pending transaction
-        const pendingTransaction = new Transaction("address1", "address2", 100);
+        try {
+            // Create a new instance of Blockchain with difficulty 2 and mining reward 1
+            const blockchain = new Blockchain(2, 1);
+    
+            // Create a transaction
+            const transaction: Transaction = {
+                id: 1,
+                sender: systemWallet,
+                receiver: receiverWallet,
+                amount: 100,
+                asset: "YatoCoin",
+                timestamp: new Date()
+            };
+    
+            // Add the transaction to the pending transactions
+            // await blockchain.createPendingTransaction(systemSignature, transaction);
 
-        // Add the pending transaction to the blockchain
-        const pendingBlock = await blockchain.addBlock({
-            transaction: pendingTransaction,
-        });
+            // Mine pending transactions
+            await blockchain.minePendingTransactions(minerWallet);
+    
+            // show system, receiver and miner balances
+            console.log("System balance: ", await blockchain.getBalance(systemWallet));
+            console.log("Receiver balance: ", await blockchain.getBalance(receiverWallet));
+            console.log("Miner balance: ", await blockchain.getBalance(minerWallet));
 
-        // Mine the pending transaction
-        await blockchain.minePendingTransactions("minerAddress", pendingBlock.transactionId || 0);
-
-        // Get the balance of "address1" after the transaction is mined
-        const balanceOfAddress1 = blockchain.getBalanceOfAddress("address1");
-        console.log("Balance of address1:", balanceOfAddress1);
-
-        // Get the balance of "address2" after the transaction is mined
-        const balanceOfAddress2 = blockchain.getBalanceOfAddress("address2");
-        console.log("Balance of address2:", balanceOfAddress2);
-
-        // Check if the blockchain is valid
-        const isChainValid = blockchain.isChainValid();
-        console.log("Is blockchain valid?", isChainValid);
-    };
+            // verify the chain
+            console.log("Is chain valid: ", await blockchain.isChainValid());
+            console.log("Chain: ", blockchain.chain);
+        } catch (error) {
+            console.error(error);
+        }
+    }
 
     await testBlockChain();
+
     return {};
 }

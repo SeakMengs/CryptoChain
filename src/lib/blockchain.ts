@@ -1,30 +1,21 @@
 import sha256 from "crypto-js/sha256";
 import { db } from "../drizzle/db.server";
-import { blocks, transactions } from "../drizzle/schema";
+import { blocks, pendingTransactions } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 
-export class Transaction {
-    constructor(
-        public fromAddress: string,
-        public toAddress: string,
-        public amount: number
-    ) {
-        this.fromAddress = fromAddress;
-        this.toAddress = toAddress;
-        this.amount = amount;
-    }
+export interface Transaction {
+    id: number;
+    sender: string;
+    receiver: string;
+    amount: number;
+    asset: string;
+    timestamp: Date;
 }
-
-type BlockData = {
-    transaction: Transaction;
-    // used to store the transaction that is verified by the network
-    verifiedPendTransaction?: Transaction;
-};
 
 export class Block {
     public index: number;
     public timestamp: Date;
-    public data: BlockData;
+    public transactions: Transaction[];
     public previousHash: string;
     public hash: string;
     public nonce: number;
@@ -32,12 +23,12 @@ export class Block {
     constructor(
         index: number,
         timestamp: Date,
-        data: BlockData,
-        previousHash = ""
+        transactions: Transaction[],
+        previousHash: string
     ) {
         this.index = index;
         this.timestamp = timestamp;
-        this.data = data;
+        this.transactions = transactions;
         this.previousHash = previousHash;
         this.hash = this.calculateHash();
         this.nonce = 0;
@@ -48,33 +39,18 @@ export class Block {
             this.index +
                 this.previousHash +
                 this.timestamp +
-                JSON.stringify(this.data) +
+                JSON.stringify(this.transactions) +
                 this.nonce
         ).toString();
     }
 
-    // {
-    //     amount: 6,
-    //     nounce: 6,
-    //     prevHash: 46547
-    // }
-    
-    // {
-    //     amount: 4,
-    //     nounce: 6,
-    //     prevHash: real
-    // }
-
-    public mineBlock(difficulty: number): void {
-        // This is a simple proof of work algorithm
-        // example: difficulty of 5 means the hash must start with 5 zeros
+    public mineBlock(difficulty: number) {
         while (
             this.hash.substring(0, difficulty) !==
             Array(difficulty + 1).join("0")
         ) {
             this.nonce++;
             this.hash = this.calculateHash();
-            // console.log("Mining block: ", this.hash);
         }
     }
 }
@@ -83,8 +59,10 @@ export class Blockchain {
     public chain: Block[];
     public difficulty: number;
     public miningReward: number;
+    public systemWallet: string = "network";
+    public systemSignature: string = "1234567890";
 
-    constructor(difficulty: number) {
+    constructor(difficulty: number, miningReward: number = 1) {
         if (difficulty < 1) {
             throw new Error("Difficulty must be at least 1");
         }
@@ -92,27 +70,39 @@ export class Blockchain {
         this.chain = [];
 
         // update this.chain (either from db or create genesis block)
-        this.getAllBlocks();
+        this.syncChains();
 
-        this.miningReward = 100;
+        this.miningReward = 1;
         this.difficulty = difficulty;
-    }
-
-    private async createGenesisBlock(): Promise<Block> {
-        const newBlock = new Block(0, new Date(), {
-            transaction: new Transaction("genesis", "genesis", 0), 
-        }, "");
-
-        await this.addBlock(newBlock.data, false);
-
-        return newBlock;
     }
 
     private getLatestBlock(): Block {
         return this.chain[this.chain.length - 1];
     }
 
-    private async getAllBlocks() {
+    private async createGenesisBlock(): Promise<Block> {
+        // create system balance
+        const transaction: Transaction = {
+            id: 0,
+            sender: this.systemWallet,
+            receiver: this.systemWallet,
+            amount: 1000000,
+            asset: "YatoCoin",
+            timestamp: new Date(),
+        };
+
+        const newBlock = new Block(0, new Date(), [transaction], "");
+        await this.addBlock(
+            newBlock.transactions,
+            this.systemWallet,
+            this.systemSignature,
+            false
+        );
+
+        return newBlock;
+    }
+
+    private async syncChains() {
         const blocks = await db.query.blocks.findMany();
         if (blocks.length === 0) {
             const genesisBlock = await this.createGenesisBlock();
@@ -120,170 +110,215 @@ export class Blockchain {
             return;
         }
 
-        this.chain = blocks.map(
-            (block) =>
-                new Block(
-                    block.index,
-                    block.timestamp,
-                    block.data as BlockData,
-                    block.previousHash
-                )
-        );
+        this.chain = blocks.map((block) => {
+            return new Block(
+                block.index,
+                block.timestamp,
+                JSON.parse(block.transactions),
+                block.previousHash
+            );
+        });
     }
 
     public async addBlock(
-        data: BlockData,
+        transactions: Transaction[],
+        receiverAddress: string,
+        signature: string,
         fetchLatestBlock: boolean = true
-    ): Promise<{
-        block: Block;
-        transactionId: number | null;
-    }> {
+    ) {
         // ensure that all blocks are up to date
         if (fetchLatestBlock) {
-            await this.getAllBlocks();
+            await this.syncChains();
+        }
+
+        const walletIsValid = await this.isWalletValid(
+            this.systemWallet,
+            this.systemSignature
+        );
+        if (!walletIsValid) {
+            throw new Error("Invalid wallet");
         }
 
         const lastBlock = this.getLatestBlock();
+        const genesisBlockIndex = 0;
 
         const newBlock = new Block(
-            // in case of no blocks, set index to 0
-            lastBlock?.index + 1 || 0,
+            lastBlock?.index + 1 || genesisBlockIndex,
             new Date(),
-            data,
-            lastBlock?.hash || ""
+            transactions,
+            lastBlock?.hash || "genesisHash"
         );
-        let transactionId = null;
 
         await db.transaction(async (tx) => {
+            // save block to db
             await db.insert(blocks).values({
                 index: newBlock.index,
                 timestamp: newBlock.timestamp,
-                data: newBlock.data,
+                transactions: JSON.stringify(newBlock.transactions),
                 previousHash: newBlock.previousHash,
                 hash: newBlock.hash,
                 nonce: newBlock.nonce,
             });
 
-            // if not verifiedPendTransaction, it's a mined block, so we don't need to create a transaction
-            if (!data.verifiedPendTransaction) {
-                const result = await this.createTransaction(
-                    data.transaction,
-                    newBlock.index
-                );
-                transactionId = result[0].insertedId;
-            }
-        });
+            // remove mined transactions from pending transactions
+            await this.removeMinedPendingTransactions(transactions);
 
-        return {
-            block: newBlock,
-            transactionId: transactionId,
-        };
-    }
-
-    public async createTransaction(transaction: Transaction, blockId: number) {
-        return await db
-            .insert(transactions)
-            .values({
-                blockId: blockId,
-                fromAddress: transaction.fromAddress,
-                toAddress: transaction.toAddress,
-                amount: transaction.amount,
-                status: "pending",
+            // create mining reward transaction
+            await this.createPendingTransaction(signature, {
+                amount: this.miningReward,
+                asset: "YatoCoin",
+                receiver: receiverAddress,
+                sender: "network",
                 timestamp: new Date(),
-            })
-            .returning({
-                insertedId: transactions.id,
             });
-    }
-
-    private async getPendingTransactions() {}
-
-    private async getPendingTransactionById(id: number) {
-        return await db.query.transactions.findFirst({
-            where: (table, { and, eq }) =>
-                and(eq(table.id, id), eq(table.status, "pending")),
         });
     }
 
-    public async minePendingTransactions(
-        miningRewardAddress: string,
-        pendingTransactionId: number
+    public async createPendingTransaction(
+        signature: string,
+        transaction: typeof pendingTransactions.$inferInsert
     ) {
-        const pendingTransaction = await this.getPendingTransactionById(
-            pendingTransactionId
+        const walletIsValid = await this.isWalletValid(
+            transaction.sender,
+            signature
         );
-        if (!pendingTransaction) {
-            throw new Error("Transaction not found");
+        if (!walletIsValid) {
+            throw new Error("Invalid wallet");
         }
 
-        const rewardTransaction = new Transaction(
-            "network",
-            miningRewardAddress,
-            this.miningReward
-        );
+        // check if sender has enough balance, except for system transactions on first transaction
+        if (transaction.id === 0) {
+            const balance = await this.getBalance(transaction.sender);
+            if (balance < transaction.amount) {
+                throw new Error("Insufficient balance");
+            }
+        }
 
-        const blockData = {
-            transaction: rewardTransaction,
-            verifiedPendTransaction: new Transaction(
-                pendingTransaction.fromAddress,
-                pendingTransaction.toAddress,
-                pendingTransaction.amount
-            ),
-        } satisfies BlockData;
+        // remove id from transaction, since it is auto-incremented
+        delete transaction.id;
 
-        await db.transaction(async (tx) => {
-            const newBlock = await this.addBlock(blockData);
-            newBlock.block.mineBlock(this.difficulty);
+        await db.insert(pendingTransactions).values(transaction);
+    }
 
-            await db
-                .update(transactions)
-                .set({
-                    status: "mined",
-                })
-                .where(eq(transactions.id, pendingTransactionId));
+    private async getPendingTransactions() {
+        return await db.query.pendingTransactions.findMany({
+            limit: 10,
         });
     }
 
-    public getBalanceOfAddress(address: string): number {
+    private async removeMinedPendingTransactions(transactions: Transaction[]) {
+        await db.transaction(async (tx) => {
+            for (const transaction of transactions) {
+                await db
+                    .delete(pendingTransactions)
+                    .where(eq(pendingTransactions.id, transaction.id));
+            }
+        });
+    }
+
+    private async isWalletValid(walletId: string, signature: string) {
+        const wallet = await db.query.wallets.findFirst({
+            where: (table, { eq, and }) =>
+                and(eq(table.id, walletId), eq(table.signature, signature)),
+        });
+
+        return !!wallet;
+    }
+
+    public async minePendingTransactions(minerAddress: string) {
+        const pendingTransactions = await this.getPendingTransactions();
+        try {
+            if (pendingTransactions.length === 0) {
+                throw new Error("No pending transactions to mine");
+            }
+
+            // lock pending transactions
+            await this.lockPendingTransactions(true, pendingTransactions);
+
+            const newBlock = new Block(
+                this.getLatestBlock()?.index + 1,
+                new Date(),
+                pendingTransactions,
+                this.getLatestBlock()?.hash
+            );
+
+            newBlock.mineBlock(this.difficulty);
+
+            await this.addBlock(
+                pendingTransactions,
+                minerAddress,
+                this.systemSignature,
+                false
+            );
+
+            await this.syncChains();
+        } finally {
+            // unlock pending transactions, even though if mined the transactions will be removed
+            await this.lockPendingTransactions(false, pendingTransactions);
+        }
+    }
+
+    private async lockPendingTransactions(
+        lock: boolean,
+        transactions: Transaction[]
+    ) {
+        await db.transaction(async (tx) => {
+            for (const transaction of transactions) {
+                await db
+                    .update(pendingTransactions)
+                    .set({
+                        isBeingMined: lock,
+                    })
+                    .where(eq(pendingTransactions.id, transaction.id));
+            }
+        });
+    }
+
+    public async getBalance(walletId: string): Promise<number> {
+        await this.syncChains();
         let balance = 0;
 
         for (const block of this.chain) {
-            const transaction = block.data.transaction;
+            for (const transaction of block.transactions) {
+                if (transaction.sender === walletId) {
+                    balance -= transaction.amount;
+                }
 
-            if (
-                !transaction ||
-                !transaction.fromAddress ||
-                !transaction.toAddress
-            ) {
-                continue;
-            }
-
-            if (transaction.fromAddress === address) {
-                balance -= transaction.amount;
-            }
-
-            if (transaction.toAddress === address) {
-                balance += transaction.amount;
+                if (transaction.receiver === walletId) {
+                    balance += transaction.amount;
+                }
             }
         }
 
         return balance;
     }
 
-    public isChainValid(): boolean {
-        // start from 1 because the first block is the genesis block
+    public async isChainValid(): Promise<boolean> {
+        await this.syncChains();
+
         for (let i = 1; i < this.chain.length; i++) {
             const currentBlock = this.chain[i];
             const previousBlock = this.chain[i - 1];
 
-            // if (currentBlock.hash !== currentBlock.calculateHash()) {
-            //     console.log(`Current hash is invalid ${i}`);
-            //     console.log(currentBlock.hash, currentBlock.calculateHash());
-            //     return false;
-            // }
+            if (currentBlock.hash !== currentBlock.calculateHash()) {
+                console.log(
+                    `Block hash mismatch: ${
+                        currentBlock.hash
+                    } !== ${currentBlock.calculateHash()} at index ${
+                        currentBlock.index
+                    }`
+                );
+                return false;
+            }
 
             if (currentBlock.previousHash !== previousBlock.hash) {
-                console.log(`Previous hash is invalid ${i}`);
+                console.log(
+                    `Previous hash mismatch: ${
+                        currentBlock.previousHash
+                    } !== ${previousBlock.hash} at index ${
+                        currentBlock.index
+                    }`
+                );
                 return false;
             }
         }

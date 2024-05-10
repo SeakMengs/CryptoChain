@@ -1,5 +1,5 @@
 {
-  "id": "3e133593-870a-4c3b-8656-df3a2a30ba10",
+  "id": "dd785e5f-e23d-4cca-80f5-85d97a12da75",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "6",
   "dialect": "postgresql",
@@ -20,9 +20,9 @@
           "primaryKey": false,
           "notNull": true
         },
-        "data": {
-          "name": "data",
-          "type": "json",
+        "transactions": {
+          "name": "transactions",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
@@ -50,8 +50,8 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {}
     },
-    "public.transactions": {
-      "name": "transactions",
+    "public.pending_transactions": {
+      "name": "pending_transactions",
       "schema": "",
       "columns": {
         "id": {
@@ -60,20 +60,14 @@
           "primaryKey": true,
           "notNull": true
         },
-        "block_id": {
-          "name": "block_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "from_address": {
-          "name": "from_address",
+        "sender": {
+          "name": "sender",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "to_address": {
-          "name": "to_address",
+        "receiver": {
+          "name": "receiver",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -84,8 +78,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "status": {
-          "name": "status",
+        "asset": {
+          "name": "asset",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -95,24 +89,17 @@
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true
+        },
+        "is_being_mined": {
+          "name": "is_being_mined",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": false
         }
       },
       "indexes": {},
-      "foreignKeys": {
-        "transactions_block_id_blocks_index_fk": {
-          "name": "transactions_block_id_blocks_index_fk",
-          "tableFrom": "transactions",
-          "tableTo": "blocks",
-          "columnsFrom": [
-            "block_id"
-          ],
-          "columnsTo": [
-            "index"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {}
     },
@@ -122,19 +109,13 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "serial",
+          "type": "text",
           "primaryKey": true,
           "notNull": true
         },
-        "address": {
-          "name": "address",
+        "signature": {
+          "name": "signature",
           "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "balance": {
-          "name": "balance",
-          "type": "integer",
           "primaryKey": false,
           "notNull": true
         }

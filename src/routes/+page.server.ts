@@ -15,7 +15,7 @@ export async function load() {
         try {
             // Create a new instance of Blockchain with difficulty 2 and mining reward 1
             const blockchain = new Blockchain(2, 1);
-    
+
             // Create a transaction
             const transaction: Transaction = {
                 id: 1,
@@ -23,19 +23,31 @@ export async function load() {
                 receiver: receiverWallet,
                 amount: 100,
                 asset: "YatoCoin",
-                timestamp: new Date()
+                timestamp: new Date(),
             };
-    
+
             // Add the transaction to the pending transactions
-            await blockchain.createPendingTransaction(systemSignature, transaction);
+            await blockchain.createPendingTransaction(
+                systemSignature,
+                transaction
+            );
 
             // Mine pending transactions
             await blockchain.minePendingTransactions(minerWallet);
-    
+
             // show system, receiver and miner balances
-            console.log("System balance: ", await blockchain.getBalance(systemWallet));
-            console.log("Receiver balance: ", await blockchain.getBalance(receiverWallet));
-            console.log("Miner balance: ", await blockchain.getBalance(minerWallet));
+            console.log(
+                "System balance: ",
+                await blockchain.getBalance(systemWallet)
+            );
+            console.log(
+                "Receiver balance: ",
+                await blockchain.getBalance(receiverWallet)
+            );
+            console.log(
+                "Miner balance: ",
+                await blockchain.getBalance(minerWallet)
+            );
 
             // verify the chain
             console.log("Is chain valid: ", await blockchain.isChainValid());
@@ -43,7 +55,7 @@ export async function load() {
         } catch (error) {
             console.error(error);
         }
-    }
+    };
 
     await testBlockChain();
 

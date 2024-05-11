@@ -1,4 +1,5 @@
 <script>
 </script>
 
-<h1>hi there</h1>
+<body class="w-full h-full flex justify-center items-center dark:bg-gray-900">
+</body>

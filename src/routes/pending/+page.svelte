@@ -1,7 +1,7 @@
 <body class="w-full pt-12 flex justify-center items-center dark:bg-gray-900">
 
 <div class="relative overflow-x-auto shadow-md sm:rounded-lg">
-   <p class="max-w-lg text-3xl font-semibold leading-normal text-gray-900 dark:text-white py-7">Pending Page</p>
+   <p class="max-w-lg text-3xl font-semibold leading-normal text-gray-900 dark:text-white py-7 px-2">Pending Page</p>
 
         <table class="w-[1400px] text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
             <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">

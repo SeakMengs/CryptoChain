@@ -2,7 +2,7 @@
 <body class="w-full flex justify-center items-center dark:bg-gray-900">
 
 <div class="relative overflow-x-auto shadow-md sm:rounded-lg">
-<p class="max-w-lg text-3xl font-semibold leading-normal text-gray-900 dark:text-white py-7">Add Transaction Page</p>
+<p class="max-w-lg text-3xl font-semibold leading-normal text-gray-900 dark:text-white py-7 text-center">Add Transaction Page</p>
        
 
 <div class="w-[1400px] max-w-sm p-4 bg-white border border-gray-200 rounded-lg shadow sm:p-6 md:p-8 dark:bg-gray-800 dark:border-gray-700">

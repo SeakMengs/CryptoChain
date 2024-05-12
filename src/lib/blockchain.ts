@@ -1,10 +1,11 @@
 import sha256 from "crypto-js/sha256";
 import { db } from "../drizzle/db.server";
-import { blocks, pendingTransactions } from "../drizzle/schema";
+import { blocks, pendingTransactions, wallets } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
+import { ec } from "$lib";
 
 export interface Transaction {
-    id: number;
+    id?: number;
     sender: string;
     receiver: string;
     amount: number;
@@ -66,7 +67,8 @@ export class Blockchain {
     private readonly difficulty: number;
     private readonly miningReward: number;
     private readonly systemWallet: string = "network";
-    private readonly systemSignature: string = "1234567890";
+    private readonly systemPrivateKey: string =
+        "2bc6e112c479cad3e83aefa0e140f314a1f13cbb3774248bd9e7dc31f74595ea";
     private readonly genesisHash: string = "genesisHash";
     private readonly genesisIndex: number = 0;
 
@@ -105,7 +107,7 @@ export class Blockchain {
         const newBlock = await this.addBlock({
             transactions: [transaction],
             receiverAddress: this.systemWallet,
-            signature: this.systemSignature,
+            privateKey: this.systemPrivateKey,
             syncChains: false,
         });
 
@@ -141,22 +143,24 @@ export class Blockchain {
     public async addBlock({
         transactions,
         receiverAddress,
-        signature,
+        privateKey,
         block = undefined,
         syncChains = true,
     }: {
         transactions: Transaction[];
         receiverAddress: string;
-        signature: string;
+        privateKey: string;
         block?: Block;
         syncChains?: boolean;
     }): Promise<Block> {
-        const walletIsValid = await this.isWalletValid(
+        const wallet = await this.verifyAndGetWallet(
             this.systemWallet,
-            this.systemSignature
+            this.systemPrivateKey
         );
-        if (!walletIsValid) {
-            throw new Error("Invalid wallet");
+        if (!wallet) {
+            throw new Error(
+                "Invalid wallet, system wallet id or private key is invalid"
+            );
         }
 
         let newBlock: Block;
@@ -191,7 +195,7 @@ export class Blockchain {
             await this.removeMinedPendingTransactions(transactions);
 
             // create mining reward transaction
-            await this.createPendingTransaction(signature, {
+            await this.createPendingTransaction(privateKey, {
                 amount: this.miningReward,
                 asset: "YatoCoin",
                 receiver: receiverAddress,
@@ -208,15 +212,17 @@ export class Blockchain {
     }
 
     public async createPendingTransaction(
-        signature: string,
-        transaction: typeof pendingTransactions.$inferInsert
+        senderPrivateKey: string,
+        transaction: Transaction
     ) {
-        const walletIsValid = await this.isWalletValid(
-            transaction.sender,
-            signature
+        const wallet = await this.verifyAndGetWallet(
+            this.systemWallet,
+            this.systemPrivateKey
         );
-        if (!walletIsValid) {
-            throw new Error("Invalid wallet");
+        if (!wallet) {
+            throw new Error(
+                "Invalid wallet, either wallet id or private key is invalid"
+            );
         }
 
         // check if sender has enough balance, except for system transactions on first block transaction
@@ -229,8 +235,45 @@ export class Blockchain {
 
         // remove id from transaction, since it is auto-incremented
         delete transaction.id;
+        await db.insert(pendingTransactions).values({
+            amount: transaction.amount,
+            asset: transaction.asset,
+            receiver: transaction.receiver,
+            sender: transaction.sender,
+            senderPublicKey: wallet.publicKey,
+            signature: this.signTransaction(senderPrivateKey, transaction),
+            timestamp: transaction.timestamp,
+        });
+    }
 
-        await db.insert(pendingTransactions).values(transaction);
+    private hashTransactions(transaction: Transaction): string {
+        return sha256(
+            JSON.stringify({
+                amount: transaction.amount,
+                asset: transaction.asset,
+                receiver: transaction.receiver,
+                sender: transaction.sender,
+                timestamp: transaction.timestamp,
+            } satisfies Transaction)
+        ).toString();
+    }
+
+    private signTransaction(
+        privateKey: string,
+        transaction: Transaction
+    ): string {
+        const key = ec.keyFromPrivate(privateKey);
+        const signature = key.sign(this.hashTransactions(transaction));
+        return signature.toDER("hex");
+    }
+
+    private async verifyTransactionSignature(
+        publicKey: string,
+        signature: string,
+        transaction: Transaction
+    ): Promise<boolean> {
+        const key = ec.keyFromPublic(publicKey, "hex");
+        return key.verify(this.hashTransactions(transaction), signature);
     }
 
     private async getPendingTransactions() {
@@ -244,18 +287,21 @@ export class Blockchain {
             for (const transaction of transactions) {
                 await db
                     .delete(pendingTransactions)
-                    .where(eq(pendingTransactions.id, transaction.id));
+                    .where(eq(pendingTransactions.id, transaction?.id || -1));
             }
         });
     }
 
-    private async isWalletValid(walletId: string, signature: string) {
+    private async verifyAndGetWallet(
+        walletId: string,
+        privateKey: string
+    ): Promise<typeof wallets.$inferSelect | undefined> {
         const wallet = await db.query.wallets.findFirst({
             where: (table, { eq, and }) =>
-                and(eq(table.id, walletId), eq(table.signature, signature)),
+                and(eq(table.id, walletId), eq(table.privateKey, privateKey)),
         });
 
-        return !!wallet;
+        return wallet;
     }
 
     public async minePendingTransactions(minerAddress: string) {
@@ -282,10 +328,29 @@ export class Blockchain {
 
             newBlock.mineBlock(this.difficulty);
 
+            let verifiedPendingTransactions = [];
+            // verify transaction signature
+            for (const transaction of pendingTransactions) {
+                const validTransaction = await this.verifyTransactionSignature(
+                    transaction.senderPublicKey,
+                    transaction.signature,
+                    transaction
+                );
+
+                if (!validTransaction) {
+                    console.log(
+                        `Invalid transaction signature for ${transaction.id}`
+                    );
+                    continue;
+                }
+
+                verifiedPendingTransactions.push(transaction);
+            }
+
             await this.addBlock({
-                transactions: pendingTransactions,
+                transactions: verifiedPendingTransactions,
                 receiverAddress: minerAddress,
-                signature: this.systemSignature,
+                privateKey: this.systemPrivateKey,
                 block: newBlock,
             });
         } finally {
@@ -305,7 +370,8 @@ export class Blockchain {
                     .set({
                         isBeingMined: lock,
                     })
-                    .where(eq(pendingTransactions.id, transaction.id));
+                    // -1 because if id is not found, it will throw an error
+                    .where(eq(pendingTransactions.id, transaction?.id || -1));
             }
         });
     }
@@ -361,5 +427,18 @@ export class Blockchain {
         }
 
         return true;
+    }
+
+    public async createWallet(): Promise<typeof wallets.$inferSelect> {
+        const keyPair = ec.genKeyPair();
+        const wallet = await db
+            .insert(wallets)
+            .values({
+                publicKey: keyPair.getPublic("hex"),
+                privateKey: keyPair.getPrivate("hex"),
+            })
+            .returning();
+
+        return wallet[0];
     }
 }

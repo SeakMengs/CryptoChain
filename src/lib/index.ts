@@ -1,1 +1,5 @@
-// place files you want to import through the `$lib` alias in this folder.
+import elliptic from "elliptic";
+
+const { ec: EC } = elliptic;
+
+export const ec = new EC("secp256k1");

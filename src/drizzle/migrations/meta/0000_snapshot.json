@@ -1,5 +1,5 @@
 {
-  "id": "dd785e5f-e23d-4cca-80f5-85d97a12da75",
+  "id": "47b19998-d4ae-4dcf-867e-e04b60a4441c",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "6",
   "dialect": "postgresql",
@@ -84,6 +84,18 @@
           "primaryKey": false,
           "notNull": true
         },
+        "signature": {
+          "name": "signature",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sender_public_key": {
+          "name": "sender_public_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
         "timestamp": {
           "name": "timestamp",
           "type": "timestamp",
@@ -111,10 +123,17 @@
           "name": "id",
           "type": "text",
           "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "public_key": {
+          "name": "public_key",
+          "type": "text",
+          "primaryKey": false,
           "notNull": true
         },
-        "signature": {
-          "name": "signature",
+        "private_key": {
+          "name": "private_key",
           "type": "text",
           "primaryKey": false,
           "notNull": true

@@ -13,11 +13,14 @@ CREATE TABLE IF NOT EXISTS "pending_transactions" (
 	"receiver" text NOT NULL,
 	"amount" integer NOT NULL,
 	"asset" text NOT NULL,
+	"signature" text NOT NULL,
+	"sender_public_key" text NOT NULL,
 	"timestamp" timestamp NOT NULL,
 	"is_being_mined" boolean DEFAULT false
 );
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "wallets" (
-	"id" text PRIMARY KEY NOT NULL,
-	"signature" text NOT NULL
+	"id" text PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"public_key" text NOT NULL,
+	"private_key" text NOT NULL
 );

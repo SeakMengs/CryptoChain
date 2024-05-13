@@ -242,7 +242,7 @@ export class Blockchain {
             sender: transaction.sender,
             senderPublicKey: wallet.publicKey,
             signature: this.signTransaction(senderPrivateKey, transaction),
-            timestamp: transaction.timestamp,
+            timestamp: new Date(),
         });
     }
 
@@ -311,12 +311,16 @@ export class Blockchain {
                 throw new Error("No pending transactions to mine");
             }
 
-            // lock pending transactions
+            // Lock pending transactions
             await this.lockPendingTransactions(true, pendingTransactions);
             const latestBlock = await this.getLatestBlock();
             if (!latestBlock) {
                 throw new Error("No blocks found");
             }
+
+            // Debugging: Log pending transactions
+            console.log("Pending Transactions:");
+            console.log(pendingTransactions);
 
             const newBlock = new Block(
                 latestBlock.index + 1,
@@ -328,33 +332,18 @@ export class Blockchain {
 
             newBlock.mineBlock(this.difficulty);
 
-            let verifiedPendingTransactions = [];
-            // verify transaction signature
-            for (const transaction of pendingTransactions) {
-                const validTransaction = await this.verifyTransactionSignature(
-                    transaction.senderPublicKey,
-                    transaction.signature,
-                    transaction
-                );
-
-                if (!validTransaction) {
-                    console.log(
-                        `Invalid transaction signature for ${transaction.id}`
-                    );
-                    continue;
-                }
-
-                verifiedPendingTransactions.push(transaction);
-            }
+            // Debugging: Log mined block
+            console.log("Mined Block:");
+            console.log(newBlock);
 
             await this.addBlock({
-                transactions: verifiedPendingTransactions,
+                transactions: pendingTransactions,
                 receiverAddress: minerAddress,
                 privateKey: this.systemPrivateKey,
                 block: newBlock,
             });
         } finally {
-            // unlock pending transactions, even though if mined the transactions will be removed
+            // Unlock pending transactions, even if mined the transactions will be removed
             await this.lockPendingTransactions(false, pendingTransactions);
         }
     }

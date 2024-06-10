@@ -1,45 +1,25 @@
-# create-svelte
+# Introduction
 
-Everything you need to build a Svelte project, powered by [`create-svelte`](https://github.com/sveltejs/kit/tree/main/packages/create-svelte).
+A small project of blockchain implementation
 
-## Creating a project
+![image](https://github.com/SeakMengs/CryptoChain/assets/54373229/5d269df1-d356-4e93-aba8-d666fa47299d)
 
-If you're seeing this, you've probably already done this step. Congrats!
 
-```bash
-# create a new project in the current directory
-npm create svelte@latest
+# Development
 
-# create a new project in my-app
-npm create svelte@latest my-app
+Make sure to copy .env.example to .env and paste your database string
 ```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```bash
 npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
 ```
 
-## Building
+Any change in drizzle schema run 
+```
+npm run db:push
+```
 
-To create a production version of your app:
+# Building
 
-```bash
+To create a production of this project run:
+```
 npm run build
-```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://kit.svelte.dev/docs/adapters) for your target environment.
-
-
-## Migration
-
-```bash
-npm run db:generate && npm run db:migrate
 ```
